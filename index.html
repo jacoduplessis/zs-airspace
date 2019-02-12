@@ -70,14 +70,15 @@
             const fads = data.features.filter(f => /^FAD\d/.test(f.properties.name) && f.geometry.type === 'Polygon')
             const fars = data.features.filter(f => /^FAR\d/.test(f.properties.name) && f.geometry.type === 'Polygon')
             const ctrs = data.features.filter(f => /CTR/.test(f.properties.name) && f.geometry.type === 'Polygon')
-            const tmas = data.features.filter(f => /TMA/.test(f.properties.name) && /Freq/.test(f.properties.name) && f.geometry.type === 'Polygon')
+            const tmas = data.features.filter(f => /TMA/.test(f.properties.name) && /Freq/.test(f.properties.description) && f.geometry.type === 'Polygon')
         
             const zones = {
                 'FIR': {features: firs, options: { fillColor: 'blue'}},
                 'FAP': {features: faps, options: {color: 'red'}},
                 'FAD': {features: fads, options: {color: 'orange'}},
                 'FAR': {features: fars, options: {color: 'yellow'}},
-                'CTR': {features: ctrs, options: {color: 'purple'}}
+                'CTR': {features: ctrs, options: {color: 'purple'}},
+                'TMA': {features: tmas, options: {color: 'green'}},
             }
 
             Object.entries(zones).forEach(([key, val]) => {
@@ -134,7 +135,7 @@
             },
             edit: {
                 featureGroup: editableLayers,
-                remove: false
+                remove: true
             }
         };
 
