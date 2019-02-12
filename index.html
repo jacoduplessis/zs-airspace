@@ -1,171 +1,205 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
-    <meta charset="utf-8">
-    <title>South African Airspace</title>
-    <link rel="stylesheet" href="static/leaflet.css">
-    <link rel="stylesheet" href="static/leaflet.draw.css">
-
+  <meta charset="utf-8">
+  <title>South African Airspace</title>
+  <link rel="stylesheet" href="static/leaflet.css">
+  <link rel="stylesheet" href="static/leaflet.draw.css">
 </head>
 
 <body>
+<div style="display: flex;">
+  <div id="app" style="width: 400px">
+    <pre style="white-space: pre-wrap">{{ JSON.stringify(userLayers) }}</pre>
+  </div>
+  <div id="map" style="width: calc(100vw - 400px); height: 80vh"></div>
+</div>
 
-    <div id="map" style="width: 100%; height: 80vh"></div>
-    <p>Data Source: <a href="https://www.atns.co.za/rsakmz.php">https://www.atns.co.za/rsakmz.php</a></p>
+<p>Data Source: <a href="https://www.atns.co.za/rsakmz.php">https://www.atns.co.za/rsakmz.php</a></p>
 
-    <script src="static/leaflet.js"></script>
-    <script src="static/leaflet.draw.js"></script>
-    <script src="static/turf.min.js"></script>
-    <script src="static/topojson.min.js"></script>
-    <script>
+<script src="static/leaflet.js"></script>
+<script src="static/leaflet.draw.js"></script>
+<script src="static/turf.min.js"></script>
+<script src="static/topojson.min.js"></script>
+<script src="static/vue.min.js"></script>
+<script>
 
-        var map = L.map('map', {
-            center: [-33.9, 18.65],
-            zoom: 10,
-            zoomControl: false,
-            renderer: L.canvas(),
-        })
+  var app = new Vue({
+    el: '#app',
+    data: {
+      userLayers: []
+    }
 
-        var osmUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-        var osmAttrib = 'Map data © <a href="https://openstreetmap.org">OpenStreetMap</a> contributors';
-        var tileLayer = new L.TileLayer(osmUrl, { attribution: osmAttrib });
-        var noneLayer = new L.TileLayer('')
+  })
 
-        var layerControl = L.control.layers(
-            { "Tiles": tileLayer, "None": noneLayer }, {}, { collapsed: false }
-        )
-        layerControl.addTo(map)
+  var map = L.map('map', {
+    center: [-33.9, 18.65],
+    zoom: 8,
+    zoomControl: false,
+    renderer: L.canvas(),
+  })
 
-        function popUpContent(feature) {
-            const container = document.createElement('p')
-            Object.entries(feature.properties).map(([key, val]) => {
-                container.innerHTML += `<strong>${key}</strong>: ${val}<br>`
-            })
-            return container
+  var osmUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  var osmAttrib = 'Map data © <a href="https://openstreetmap.org">OpenStreetMap</a> contributors';
+  var tileLayer = new L.TileLayer(osmUrl, {attribution: osmAttrib});
+  var noneLayer = new L.TileLayer('')
+
+  var layerControl = L.control.layers(
+    {"Tiles": tileLayer, "None": noneLayer}, {}, {collapsed: false}
+  )
+  layerControl.addTo(map)
+
+  function popUpContent(feature) {
+    const container = document.createElement('p')
+    Object.entries(feature.properties).map(([key, val]) => {
+      container.innerHTML += `<strong>${key}</strong>: ${val}<br>`
+    })
+    return container
+  }
+
+  fetch("data/za-provinces.topojson").then(r => r.json()).then(data => {
+
+    const geo = topojson.feature(data, data.objects.layer1)
+    const layer = L.geoJSON(geo, {
+      style: {
+        opacity: 1,
+        fillColor: 'black',
+        fillOpacity: 0.3,
+        stroke: true,
+        color: 'black'
+      }
+    })
+    layer.addTo(map)
+  })
+
+  fetch("data/doc.geojson").then(r => r.json()).then(data => {
+
+    const points = data.features.filter(f => f.geometry.type === 'Point')
+    const firs = data.features.filter(f => f.properties.name.indexOf("FIR") >= 0 && f.geometry.type === 'Polygon').slice(0, 3)
+    const faps = data.features.filter(f => /^FAP\d/.test(f.properties.name) && f.geometry.type === 'Polygon')
+    const fads = data.features.filter(f => /^FAD\d/.test(f.properties.name) && f.geometry.type === 'Polygon')
+    const fars = data.features.filter(f => /^FAR\d/.test(f.properties.name) && f.geometry.type === 'Polygon')
+    const ctrs = data.features.filter(f => /CTR/.test(f.properties.name) && f.geometry.type === 'Polygon')
+    const tmas = data.features.filter(f => /TMA/.test(f.properties.name) && /Freq/.test(f.properties.name) && f.geometry.type === 'Polygon')
+
+    const zones = {
+      'FIR': {features: firs, options: {fillColor: 'blue'}},
+      'FAP': {features: faps, options: {color: 'red'}},
+      'FAD': {features: fads, options: {color: 'orange'}},
+      'FAR': {features: fars, options: {color: 'yellow'}},
+      'CTR': {features: ctrs, options: {color: 'purple'}}
+    }
+
+    Object.entries(zones).forEach(([key, val]) => {
+      const layer = L.geoJSON({
+        type: "FeatureCollection",
+        features: val.features,
+      }, val.options)
+      layer.bindPopup(layer => popUpContent(layer.feature))
+      layerControl.addOverlay(layer, key)
+    })
+
+    const pointsCollections = {
+      type: "FeatureCollection",
+      features: points,
+    }
+
+    window.dataLayer = L
+      .geoJSON(pointsCollections, {
+        pointToLayer: function (feature) {
+          return new L.circleMarker(feature.geometry.coordinates.slice(0, 2).reverse(), {
+            radius: 2,
+            color: '#4d4d4d',
+          })
+        },
+      })
+      .bindPopup(layer => popUpContent(layer.feature))
+
+    layerControl.addOverlay(dataLayer, 'Points')
+  })
+
+  var editableLayers = new L.FeatureGroup();
+  map.addLayer(editableLayers);
+
+
+  var drawOptions = {
+    position: 'bottomright',
+    draw: {
+      polygon: {
+        allowIntersection: false, // Restricts shapes to simple polygons
+        drawError: {
+          color: '#e1e100', // Color the shape will turn when intersects
+          message: '<strong>Oh snap!<strong> you can\'t draw that!' // Message that will show when intersect
+        },
+        shapeOptions: {
+          color: '#bada55'
         }
-
-
-
-        fetch("data/za-provinces.topojson").then(r => r.json()).then(data => {
-
-            const geo = topojson.feature(data, data.objects.layer1)
-            const layer = L.geoJSON(geo, {
-                style: {
-                    opacity: 1,
-                    fillColor: 'black',
-                    fillOpacity: 0.3,
-                    stroke: true,
-                    color: 'black'
-                }
-            })
-            layer.addTo(map)
-        })
-
-        fetch("data/doc.geojson").then(r => r.json()).then(data => {
-
-            const points = data.features.filter(f => f.geometry.type === 'Point')
-            const firs = data.features.filter(f => f.properties.name.indexOf("FIR") >= 0 && f.geometry.type === 'Polygon').slice(0,3)
-            const faps = data.features.filter(f => /^FAP\d/.test(f.properties.name) && f.geometry.type === 'Polygon')
-            const fads = data.features.filter(f => /^FAD\d/.test(f.properties.name) && f.geometry.type === 'Polygon')
-            const fars = data.features.filter(f => /^FAR\d/.test(f.properties.name) && f.geometry.type === 'Polygon')
-            const ctrs = data.features.filter(f => /CTR/.test(f.properties.name) && f.geometry.type === 'Polygon')
-            const tmas = data.features.filter(f => /TMA/.test(f.properties.name) && /Freq/.test(f.properties.name) && f.geometry.type === 'Polygon')
-        
-            const zones = {
-                'FIR': {features: firs, options: { fillColor: 'blue'}},
-                'FAP': {features: faps, options: {color: 'red'}},
-                'FAD': {features: fads, options: {color: 'orange'}},
-                'FAR': {features: fars, options: {color: 'yellow'}},
-                'CTR': {features: ctrs, options: {color: 'purple'}}
-            }
-
-            Object.entries(zones).forEach(([key, val]) => {
-                const layer = L.geoJSON({
-                    type: "FeatureCollection",
-                    features: val.features,
-                }, val.options)
-                layer.bindPopup(layer => popUpContent(layer.feature))
-                layerControl.addOverlay(layer, key)
-            })
-
-            const pointsCollections = {
-                type: "FeatureCollection",
-                features: points,
-            }
-
-            window.dataLayer = L
-                .geoJSON(pointsCollections, {
-                    pointToLayer: function (feature) {
-                        return new L.circleMarker(feature.geometry.coordinates.slice(0,2).reverse(), {
-                            radius: 2,
-                            color: '#4d4d4d',
-                        })
-                    },
-                })
-                .bindPopup(layer => popUpContent(layer.feature))
-
-            layerControl.addOverlay(dataLayer, 'Points')
-        })
-
-        var editableLayers = new L.FeatureGroup();
-        map.addLayer(editableLayers);
-
-
-        var drawOptions = {
-            position: 'bottomright',
-            draw: {
-                polygon: {
-                    allowIntersection: false, // Restricts shapes to simple polygons
-                    drawError: {
-                        color: '#e1e100', // Color the shape will turn when intersects
-                        message: '<strong>Oh snap!<strong> you can\'t draw that!' // Message that will show when intersect
-                    },
-                    shapeOptions: {
-                        color: '#bada55'
-                    }
-                },
-                circle: false, // Turns off this drawing tool
-                rectangle: {
-                    shapeOptions: {
-                        clickable: false
-                    }
-                },
-            },
-            edit: {
-                featureGroup: editableLayers,
-                remove: false
-            }
-        };
-
-        var drawControl = new L.Control.Draw(drawOptions);
-
-        map.addControl(drawControl);
-
-        function exportDraw() {
-            prompt("GeoJSON export", JSON.stringify(editableLayers.toGeoJSON()))
+      },
+      circle: false, // Turns off this drawing tool
+      rectangle: {
+        shapeOptions: {
+          clickable: false
         }
+      },
+      polyline: {
+        nautic: true,
+        feet: false,
+        metric: false,
+      }
+    },
+    edit: {
+      featureGroup: editableLayers,
+      remove: true,
+    }
+  };
 
-        map.on(L.Draw.Event.CREATED, function (e) {
-            var type = e.layerType,
-                layer = e.layer;
+  var drawControl = new L.Control.Draw(drawOptions);
 
-            if (type === 'marker') {
-                layer.bindPopup('A popup!');
-            }
+  map.addControl(drawControl);
 
-            if (type === 'polyline') {
+  function exportDraw() {
+    prompt("GeoJSON export", JSON.stringify(editableLayers.toGeoJSON()))
+  }
 
-                const geo = layer.toGeoJSON()
-                console.log(turf.length(geo, { units: 'nauticalmiles' }))
-            }
+  map.on(L.Draw.Event.CREATED, function (e) {
+    var type = e.layerType,
+      layer = e.layer;
 
-            editableLayers.addLayer(layer);
-        });
+    if (type === 'marker') {
+      layer.bindPopup('A popup!');
+    }
+
+    if (type === 'polyline') {
+
+      const geo = layer.toGeoJSON()
+      console.log(turf.length(geo, {units: 'nauticalmiles'}))
+    }
+
+    editableLayers.addLayer(layer);
+  });
+
+  map.on('draw:created', function(e) {
+    const geo = e.layer.toGeoJSON()
+    geo.properties._leaflet_id = e.layer._leaflet_id
+    app.userLayers.push(geo)
+  })
+
+  map.on('draw:deleted', function(e) {
+    console.log(e)
+  })
+
+  map.on('draw:edited', function(e) {
+    e.layers.eachLayer(layer => {
+      const ix = app.userLayers.findIndex(l => l.properties._leaflet_id === layer._leaflet_id)
+      const geo = layer.toGeoJSON()
+      geo.properties._leaflet_id = layer._leaflet_id
+      Vue.set(app.userLayers, ix, geo)
+    })
+  })
 
 
-
-    </script>
+</script>
 </body>
 
 </html>
