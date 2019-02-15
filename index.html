@@ -44,7 +44,6 @@
     return container
   }
 
-
   fetch("data/za-provinces.topojson").then(r => r.json()).then(data => {
 
     const geo = topojson.feature(data, data.objects.layer1)
