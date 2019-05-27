@@ -8,6 +8,10 @@ function uuidv4() {
   });
 }
 
+function forEachPromise(items, fn) {
+  return items.reduce((promise, item) => promise.then(() => fn(item)), Promise.resolve())
+}
+
 function featureFactory(coordinates, name) {
 
   return {
@@ -30,6 +34,7 @@ function featureFactory(coordinates, name) {
       variation: 0,
       deviation: 0,
       legTime: 0,
+      weather: {},
     }
   }
 }
@@ -56,6 +61,7 @@ export default {
     <div>
       <span>Selecting: {{ selecting }} {{ selectionId }} <button v-show="selecting" @click="selecting = false; selectionId = null;">cancel</button></span>
       <button @click="forceUpdate">Force Update</button>
+      <input v-model="properties.startTimeISO" placeholder="Start Time ISO 8601">
       <input v-model="properties.EOBTDate" placeholder="EOBT Date">
       <input v-model="properties.EOBTTime" placeholder="EOBT Time">
       <input v-model.number="properties.fuel" placeholder="Fuel Gallons">
@@ -65,8 +71,10 @@ export default {
       <input v-model.number="allAirSpeed" placeholder="All Airspeed">
       <button @click="setAllAirSpeed">Set All Air Speed</button>
       <button @click="selecting = true">Insert</button>
-            
-      <p>Total Distance: {{ totalDistance.toFixed(2) }} nm<br>
+      
+      <p>
+      Start Time: {{ startTime.toISOString() }}<br>
+      Total Distance: {{ totalDistance.toFixed(2) }} nm<br>
       Total Flying Time: {{ totalFlyingTime.toFixed(0) }}<br>
       Avg Ground Speed: {{ averageGroundSpeed.toFixed(2) }}</p>
       
@@ -77,6 +85,7 @@ export default {
             <th title="Coordinates">Coord</th>
 <!--            <th title="Latitude">Lat</th>-->
 <!--            <th title="Longitude">Lng</th>-->
+            <th title="QNH">QNH</th>
             <th title="Altitude">Alt</th>
             <th title="Outside Air Temperature">Temp</th>
             <th title="Wind Direction (Degrees)">Wind D</th>
@@ -88,8 +97,9 @@ export default {
             <th title="Distance (Nautical Miles)">Distance</th>
             <th title="Air Speed (Knots)">Air Sp</th>
             <th title="Ground Speed (Knots)">Gnd Sp</th>
-            <th title="Leg Time (minutes)">Leg Time</th>
-            <th title="Total Time (minutes)">Total Time</th>
+            <th title="Leg Start Time">Leg Time</th>
+            <th title="Leg Duration (minutes)">Leg Dur</th>
+            <th title="Total Duration (minutes)">Total Dur</th>
             <th title="Estimated Time">ETA</th>
             <th></th>
           </tr>
@@ -102,10 +112,14 @@ export default {
 <!--            <td>{{ feature.geometry.coordinates[0] | humanizeCoordinate }}</td>-->
 <!--            <td><input v-model.number="feature.geometry.coordinates[1]"></td>-->
 <!--            <td><input v-model.number="feature.geometry.coordinates[0]"></td>-->
+            <td>{{ feature.properties.weather && feature.properties.weather.pressure ? feature.properties.weather.pressure.values[0].toFixed(0) : ''}}</td>
             <td><input v-model="feature.properties.altitude" style="max-width: 6em"></td>
-            <td><input v-model.number="feature.properties.temperature" style="max-width: 3em"></td>
-            <td><input v-model.number="feature.properties.windDirection" type="number" min="0" max="359" step="1" style="max-width: 3em"></td>
-            <td><input v-model.number="feature.properties.windVelocity" style="max-width: 3em"></td>
+            <td>{{ feature.properties.weather && feature.properties.weather.temp ? feature.properties.weather.temp.celsius.toFixed(0) : '' }}</td>
+<!--            <td><input v-model.number="feature.properties.temperature" style="max-width: 3em"></td>-->
+<!--            <td><input v-model.number="feature.properties.windDirection" type="number" min="0" max="359" step="1" style="max-width: 3em"></td>-->
+<!--            <td><input v-model.number="feature.properties.windVelocity" style="max-width: 3em"></td>-->
+            <td>{{ feature.properties.weather && feature.properties.weather.wind ? feature.properties.weather.wind.direction : '' }}</td>
+            <td>{{ feature.properties.weather && feature.properties.weather.wind ? feature.properties.weather.wind.speedKnots.toFixed(0) : '' }}</td>
             <td><input v-model.number="feature.properties.variation" style="max-width: 3em"></td>
             <td>{{ feature.properties.bearing.toFixed(0) }}</td>
             <td>{{ feature.properties.windCorrectionAngle ? feature.properties.windCorrectionAngle.toFixed(1) : ''}}</td>
@@ -113,6 +127,7 @@ export default {
             <td>{{ feature.properties.distance.toFixed(2) }}</td>
             <td><input v-model.number="feature.properties.airSpeed" style="max-width: 3em"></td>
             <td>{{ feature.properties.groundSpeed ? feature.properties.groundSpeed.toFixed(0) : '' }}</td>
+            <td>{{ feature.properties.timestamp }}</td>
             <td>{{ feature.properties.legTime ? feature.properties.legTime.toFixed(0) : ''}}</td>
             <td>{{ feature.properties.totalTime ? feature.properties.totalTime.toFixed(0) : '' }}</td>
             <td>{{ feature.properties.ETA }}</td>
@@ -121,6 +136,7 @@ export default {
                 <button @click="moveFeature(feature)">move</button>
                 <button @click="deleteFeature(feature)">delete</button>
                 <button @click="insertAfter(feature)">insert below</button>
+                <button @click="getWeather(feature)">get weather</button>
               </div>
             </td>
             
@@ -135,11 +151,13 @@ export default {
   data() {
     return {
       features: [],
+
       allVariation: null,
       allAirSpeed: null,
       selecting: false, // true if selecting a point on the map
       selectionId: null,
       properties: {
+        startTimeISO: (new Date()).toISOString(),
         EOBTDate: '',
         EOBTTime: '',
         fuel: null,
@@ -169,10 +187,9 @@ export default {
       this.$forceUpdate()
     },
     insertAfter(feature) {
-      console.log(feature)
       const ix = this.features.findIndex(f => f.properties.id === feature.properties.id)
       const newFeature = featureFactory()
-      this.features.splice(ix+1, 0, newFeature)
+      this.features.splice(ix + 1, 0, newFeature)
       this.selecting = true
       this.selectionId = newFeature.properties.id
     },
@@ -183,6 +200,38 @@ export default {
     moveFeature(feature) {
       this.selecting = true
       this.selectionId = feature.properties.id
+    },
+    getWeather(feature) {
+
+      const ix = this.features.findIndex(f => f.properties.id === feature.properties.id)
+
+      feature.properties.weather = feature.properties.weather || {}
+
+      const layers = [
+        'wind',
+        'pressure',
+        'temp',
+      ]
+
+      forEachPromise(layers, layer => {
+        return new Promise((resolve, reject) => {
+
+          window.getWeatherSingle(layer,
+            feature.geometry.coordinates[1],
+            feature.geometry.coordinates[0],
+            feature.properties.timestamp
+          ).then(data => {
+
+            feature.properties.weather[data.overlay] = data
+            resolve()
+          })
+
+        })
+      }).then(() => {
+        Vue.set(this.features, ix, feature)
+      })
+
+
     }
   },
   filters: {
@@ -215,6 +264,13 @@ export default {
     }
   },
   computed: {
+    startTime() {
+      try {
+        return new Date(this.properties.startTimeISO)
+      } catch {
+        return new Date()
+      }
+    },
     totalDistance() {
       return this.normalizedFeatures.reduce((acc, p) => acc + p.properties.distance || 0, 0)
     },
@@ -249,6 +305,7 @@ export default {
           f.properties.legTime = f.properties.groundSpeed ? 60 * f.properties.distance / f.properties.groundSpeed : 0
           const prevTime = ix === 0 ? 0 : this.features[ix - 1].properties.totalTime
           f.properties.totalTime = prevTime + f.properties.legTime
+          f.properties.timestamp = (+this.startTime) + (f.properties.totalTime * 60 * 1000)
         }
 
         f.properties.ETA = minutesToTime(timeToMinutes(prevETA) + f.properties.legTime)
@@ -310,13 +367,13 @@ export default {
     this.$bus.$on('mapClick', (e) => {
 
       if (this.selecting && this.selectionId) {
-          const ix = this.features.findIndex(f => f.properties.id === this.selectionId)
-          if (ix < 0) return
-          const feature = this.features[ix]
-          feature.geometry.coordinates = [e.latlng.lng, e.latlng.lat]
-          this.features.splice(ix, 1, feature)
-          this.selecting = false
-          this.selectionId = null
+        const ix = this.features.findIndex(f => f.properties.id === this.selectionId)
+        if (ix < 0) return
+        const feature = this.features[ix]
+        feature.geometry.coordinates = [e.latlng.lng, e.latlng.lat]
+        this.features.splice(ix, 1, feature)
+        this.selecting = false
+        this.selectionId = null
       }
 
       if (this.selecting && !this.selectionId) {

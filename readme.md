@@ -6,3 +6,5 @@ https://www.ecmwf.int/en/forecasts/datasets/wmo-essential
 https://confluence.ecmwf.int/display/METV/Wind%20Coloured%20By%20Temperature%20Example
 
 https://github.com/ecmwf/metview-python
+
+https://confluence.ecmwf.int/display/MAGP/Wind+plotting+tutorial
